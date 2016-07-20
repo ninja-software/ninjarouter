@@ -11,6 +11,7 @@ import (
 // Mux contains a map of handlers and the NotFound handler func.
 type Mux struct {
 	handlers map[string][]*Handler
+	root     map[string]*node
 	NotFound http.HandlerFunc
 }
 
@@ -34,8 +35,6 @@ type node struct {
 	handler  *Handler
 	children map[string]*node
 }
-
-var root = make(map[string]*node)
 
 // ErrNoSession is returned by Vars when there is no match for that request
 var ErrNoSession = errors.New("Session does not exist")
@@ -76,7 +75,7 @@ func Var(r *http.Request, n string) (string, error) {
 
 // New returns a new Mux instance.
 func New() *Mux {
-	return &Mux{make(map[string][]*Handler), nil}
+	return &Mux{make(map[string][]*Handler), make(map[string]*node), nil}
 }
 
 // Listen is a shorthand way of doing http.ListenAndServe.
@@ -114,8 +113,8 @@ func (m *Mux) add(meth, patt string, handler http.HandlerFunc) {
 		handler,
 	}
 
-	if _, ok := root[meth]; !ok {
-		root[meth] = &node{"", nil, make(map[string]*node)}
+	if _, ok := m.root[meth]; !ok {
+		m.root[meth] = &node{"", nil, make(map[string]*node)}
 	}
 
 	n := node{
@@ -124,7 +123,7 @@ func (m *Mux) add(meth, patt string, handler http.HandlerFunc) {
 		make(map[string]*node),
 	}
 
-	addnode(root[meth], &n)
+	addnode(m.root[meth], &n)
 
 	m.handlers[meth] = append(
 		m.handlers[meth],
@@ -201,7 +200,7 @@ func (m *Mux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	vrs := make(map[string]string)
 
-	if nd, ok = root[r.Method]; !ok {
+	if nd, ok = m.root[r.Method]; !ok {
 		m.notFound(w, r)
 		return
 	}
@@ -253,5 +252,11 @@ func (m *Mux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	fmt.Println(nd)
+
+	if nd == nil {
+		m.notFound(w, r)
+		return
+	}
 	nd.handler.ServeHTTP(w, r)
 }
