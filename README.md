@@ -1,4 +1,4 @@
-# Zeus
+# NinjaRouter
 
 NinjaRouter is a simple and fast HTTP router for Go, and has been forked from github.com/daryl/zeus
 
