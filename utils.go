@@ -1,4 +1,4 @@
-package router
+package ninjarouter
 
 func trim(s, w string) string {
 	ss := len(s)
