@@ -8,9 +8,8 @@ import (
 	"sync"
 )
 
-// Mux contains a map of handlers and the NotFound handler func.
+// Mux contains a map of handler treenodes and the NotFound handler func.
 type Mux struct {
-	handlers map[string][]*Handler
 	root     map[string]*node
 	NotFound http.HandlerFunc
 }
@@ -124,11 +123,6 @@ func (m *Mux) add(meth, patt string, handler http.HandlerFunc) {
 	}
 
 	addnode(m.root[meth], &n)
-
-	m.handlers[meth] = append(
-		m.handlers[meth],
-		h,
-	)
 }
 
 // GET adds a new route for GET requests.
