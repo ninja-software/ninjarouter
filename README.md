@@ -58,3 +58,6 @@ For further documentation, check out [GoDoc](http://godoc.org/github.com/BlockNi
 #### Credits
 
 This router was forked from  [github.com/daryl/zeus](https://github.com/daryl/zeus)
+
+#### License
+MIT
