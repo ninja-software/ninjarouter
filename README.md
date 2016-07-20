@@ -17,7 +17,7 @@ package main
 
 import (
     "fmt"
-    "github.com/BlockNinja/ninjarouter"
+    "github.com/blockninja/ninjarouter"
     "net/http"
     "io"
 )
