@@ -53,7 +53,7 @@ func notFound(w http.ResponseWriter, r *http.Request) {
 
 #### Documentation
 
-For further documentation, check out [GoDoc](http://godoc.org/github.com/blockninja/ninjarouter).
+For further documentation, check out [GoDoc](http://godoc.org/github.com/BlockNinja/ninjarouter).
 
 #### Credits
 
