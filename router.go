@@ -179,6 +179,12 @@ func (m *Mux) notFound(w http.ResponseWriter, r *http.Request) {
 	return
 }
 
+func HandlerFunc(h http.Handler) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h.ServeHTTP(w, r)
+	})
+}
+
 func (m *Mux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	l := len(r.URL.Path)
 	// Redirect trailing slash URL's.
