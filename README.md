@@ -29,7 +29,9 @@ func main() {
     // Supports wildcards anywhere.
     rtr.GET("/pokemon/*", catchAll)
     // Even after variable catching
-    rtr.GET("/hello/:lastname/*", helloAll)
+    rtr.GET("/hello/:firstname/:lastname/*", helloAll)
+    // Wrap the file server handler in a http.HandlerFunc
+    rtr.GET("/*", ninjarouter.HandlerFunc(http.FileServer(http.Dir("./public/"))))
     // Custom 404 handler.
     rtr.NotFound = notFound
     // Listen and serve.
