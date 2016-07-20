@@ -23,9 +23,15 @@ import (
 func main() {
     rtr := ninjarouter.New()
     // Supports named parameters.
-    rtr.GET("/hellow/:name", helloName)
+    rtr.GET("/hello/:firstname", helloName)
+    // You can overload variables (leading variables must be the same)
+    rtr.GET("/hello/:firstname/:lastname", helloFullName)
     // Supports wildcards anywhere.
     rtr.GET("/pokemon/*", catchAll)
+    // Even after variable catching
+    rtr.GET("/hello/:lastname/*", helloAll)
+    // Wrap the file server handler
+    rtr.GET("/*", Serve(http.FileServer(http.Dir("./public/"))))
     // Custom 404 handler.
     rtr.NotFound = notFound
     // Listen and serve.
@@ -33,13 +39,36 @@ func main() {
 }
 
 func helloName(w http.ResponseWriter, r *http.Request) {
+    // Get named variable
+    firstname := ninjarouter.Var(r, "firstname")
+
+    io.WriteString(w, fmt.Sprintf("hello, %s", firstname))
+}
+
+func helloFullName(w http.ResponseWriter, r *http.Request) {
     // Get a map of all
     // route variables.
     vrs := ninjarouter.Vars(r)
+    firstname := vrs["firstname"]
+    lastname := vrs["lastname"]
 
-    name := vrs["name"]
+    io.WriteString(w, fmt.Sprintf("hello, %s %s", firstname, lastname))
+}
 
-    io.WriteString(w, fmt.Sprintf("hello, %s", name))
+func helloAll(w http.ResponseWriter, r *http.Request) {
+    // Get a map of all
+    // route variables.
+    vrs := ninjarouter.Vars(r)
+    firstname := vrs["firstname"]
+    lastname := vrs["lastname"]
+
+    io.WriteString(w, fmt.Sprintf("hello, %s %s and all!", firstname, lastname))
+}
+
+func Serve(h http.Handler) http.HandlerFunc {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        h.ServeHTTP(w, r)
+    })
 }
 
 func catchAll(w http.ResponseWriter, r *http.Request) {
@@ -54,10 +83,6 @@ func notFound(w http.ResponseWriter, r *http.Request) {
 #### Documentation
 
 For further documentation, check out [GoDoc](http://godoc.org/github.com/BlockNinja/ninjarouter).
-
-#### Credits
-
-This router was forked from  [github.com/daryl/zeus](https://github.com/daryl/zeus)
 
 #### License
 MIT

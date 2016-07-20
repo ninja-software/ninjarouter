@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 )
 
@@ -27,6 +28,14 @@ var vars = struct {
 }{
 	sessions: map[*http.Request]map[string]string{},
 }
+
+type node struct {
+	pattern  string
+	handler  *Handler
+	children map[string]*node
+}
+
+var root = make(map[string]*node)
 
 // ErrNoSession is returned by Vars when there is no match for that request
 var ErrNoSession = errors.New("Session does not exist")
@@ -76,13 +85,46 @@ func (m *Mux) Listen(port string) {
 	http.ListenAndServe(port, m)
 }
 
+func addnode(nd *node, n *node) {
+	segments := split(trim(n.pattern, "/"), "/")
+	for i, seg := range segments {
+		if seg == "*" {
+			nd.children["*"] = n
+			break
+		}
+
+		_, ok := nd.children[seg]
+
+		if !ok && i < len(segments)-1 {
+			nd.children[seg] = &node{"empty", nil, make(map[string]*node)}
+		} else if i == len(segments)-1 {
+			nd.children[seg] = n
+			break
+		}
+		nd = nd.children[seg]
+	}
+}
+
 func (m *Mux) add(meth, patt string, handler http.HandlerFunc) {
+
 	h := &Handler{
 		patt,
 		split(trim(patt, "/"), "/"),
 		patt[len(patt)-1:] == "*",
 		handler,
 	}
+
+	if _, ok := root[meth]; !ok {
+		root[meth] = &node{"", nil, make(map[string]*node)}
+	}
+
+	n := node{
+		patt,
+		h,
+		make(map[string]*node),
+	}
+
+	addnode(root[meth], &n)
 
 	m.handlers[meth] = append(
 		m.handlers[meth],
@@ -126,6 +168,17 @@ func (m *Mux) PATCH(patt string, handler http.HandlerFunc) {
 	m.add("PATCH", patt, handler)
 }
 
+func (m *Mux) notFound(w http.ResponseWriter, r *http.Request) {
+	if m.NotFound != nil {
+		w.WriteHeader(404)
+		m.NotFound.ServeHTTP(w, r)
+		return
+	}
+	// Default 404.
+	http.NotFound(w, r)
+	return
+}
+
 func (m *Mux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	l := len(r.URL.Path)
 	// Redirect trailing slash URL's.
@@ -135,53 +188,64 @@ func (m *Mux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	// Split the URL into segments.
 	segments := split(trim(r.URL.Path, "/"), "/")
-	// Map over the registered handlers for
-	// the current request (if there is any).
-	for _, handler := range m.handlers[r.Method] {
-		// Try and match the pattern
-		if handler.patt == r.URL.Path {
-			handler.ServeHTTP(w, r)
-			return
-		}
-		// Compare pattern segments to URL.
-		if ok, v := handler.try(segments); ok {
-			vars.Lock()
-			vars.sessions[r] = v
-			defer deleteVars(r)
-			vars.Unlock()
-			handler.ServeHTTP(w, r)
-			return
-		}
-	}
-	// Custom 404 handler?
-	if m.NotFound != nil {
-		w.WriteHeader(404)
-		m.NotFound.ServeHTTP(w, r)
+
+	var ok bool
+	var xnode *node
+	var nd *node
+
+	vrs := make(map[string]string)
+
+	if nd, ok = root[r.Method]; !ok {
+		m.notFound(w, r)
 		return
 	}
-	// Default 404.
-	http.NotFound(w, r)
-}
 
-func (h *Handler) try(usegs []string) (bool, map[string]string) {
-	if len(h.parts) != len(usegs) && !h.wild {
-		return false, nil
+	for i, seg := range segments {
+		xnode, ok = nd.children[seg]
+
+		if !ok {
+			if xnode, ok = nd.children["*"]; ok {
+				nd = xnode
+				break
+			}
+
+			//check for variables
+			for k, v := range nd.children {
+				if string([]rune(k)[0]) == ":" {
+					nd = v
+					vrs[strings.TrimPrefix(k, ":")] = seg
+					if i == len(segments)-1 {
+						break
+					}
+				}
+			}
+			if len(vrs) > 0 && i < len(segments)-1 {
+				continue
+			} else if len(vrs) > 0 && i == len(segments)-1 {
+				break
+			}
+			//check for custom 404
+			m.notFound(w, r)
+			return
+		}
+		if xnode.pattern == "empty" && i == len(segments)-1 {
+			if xnode, ok = xnode.children["*"]; ok {
+				nd = xnode
+				break
+			}
+		}
+
+		nd = xnode
 	}
 
-	vars := map[string]string{}
-
-	for idx, part := range h.parts {
-		if part == "*" {
-			continue
-		}
-		if part != "" && part[0] == ':' {
-			vars[part[1:]] = usegs[idx]
-			continue
-		}
-		if part != usegs[idx] {
-			return false, nil
-		}
+	if len(vrs) > 0 {
+		vars.Lock()
+		vars.sessions[r] = vrs
+		defer deleteVars(r)
+		vars.Unlock()
+		nd.handler.ServeHTTP(w, r)
+		return
 	}
 
-	return true, vars
+	nd.handler.ServeHTTP(w, r)
 }
