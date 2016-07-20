@@ -6,6 +6,8 @@ NinjaRouter is a simple, fast, threadsafe tree based HTTP router for Go
 
     go get github.com/blockninja/ninjarouter
 
+    //or
+
     glide get github.com/blockninja/ninjarouter
 
 #### Usage
