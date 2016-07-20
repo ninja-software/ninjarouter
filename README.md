@@ -1,6 +1,6 @@
 # NinjaRouter
 
-NinjaRouter is a simple and fast HTTP router for Go
+NinjaRouter is a simple, fast, threadsafe tree based HTTP router for Go
 
 #### Install
 
