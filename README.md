@@ -1,6 +1,6 @@
 # NinjaRouter
 
-NinjaRouter is a simple and fast HTTP router for Go, and has been forked from github.com/daryl/zeus
+NinjaRouter is a simple and fast HTTP router for Go
 
 #### Install
 
@@ -25,7 +25,7 @@ func main() {
     // Supports named parameters.
     rtr.GET("/hellow/:name", helloName)
     // Supports wildcards anywhere.
-    rtr.GET("/pokemon/*", catchFoo)
+    rtr.GET("/pokemon/*", catchAll)
     // Custom 404 handler.
     rtr.NotFound = notFound
     // Listen and serve.
@@ -42,7 +42,7 @@ func helloName(w http.ResponseWriter, r *http.Request) {
     io.WriteString(w, fmt.Sprintf("hello, %s", name))
 }
 
-func catchFoo(w http.ResponseWriter, r *http.Request) {
+func catchAll(w http.ResponseWriter, r *http.Request) {
     w.Write([]byte("This catches 'em all"))
 }
 
@@ -54,3 +54,7 @@ func notFound(w http.ResponseWriter, r *http.Request) {
 #### Documentation
 
 For further documentation, check out [GoDoc](http://godoc.org/github.com/blockninja/ninjarouter).
+
+#### Credits
+
+This router was forked from  [github.com/daryl/zeus](https://github.com/daryl/zeus)
