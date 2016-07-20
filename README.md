@@ -65,12 +65,6 @@ func helloAll(w http.ResponseWriter, r *http.Request) {
     io.WriteString(w, fmt.Sprintf("hello, %s %s and all!", firstname, lastname))
 }
 
-func Serve(h http.Handler) http.HandlerFunc {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        h.ServeHTTP(w, r)
-    })
-}
-
 func catchAll(w http.ResponseWriter, r *http.Request) {
     w.Write([]byte("This catches 'em all"))
 }
