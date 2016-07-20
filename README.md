@@ -30,8 +30,6 @@ func main() {
     rtr.GET("/pokemon/*", catchAll)
     // Even after variable catching
     rtr.GET("/hello/:lastname/*", helloAll)
-    // Wrap the file server handler
-    rtr.GET("/*", Serve(http.FileServer(http.Dir("./public/"))))
     // Custom 404 handler.
     rtr.NotFound = notFound
     // Listen and serve.
