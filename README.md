@@ -40,7 +40,7 @@ func main() {
 
 func helloName(w http.ResponseWriter, r *http.Request) {
     // Get named variable
-    firstname := ninjarouter.Var(r, "firstname")
+    firstname, _ := ninjarouter.Var(r, "firstname")
 
     io.WriteString(w, fmt.Sprintf("hello, %s", firstname))
 }
@@ -48,7 +48,7 @@ func helloName(w http.ResponseWriter, r *http.Request) {
 func helloFullName(w http.ResponseWriter, r *http.Request) {
     // Get a map of all
     // route variables.
-    vrs := ninjarouter.Vars(r)
+    vrs, _ := ninjarouter.Vars(r)
     firstname := vrs["firstname"]
     lastname := vrs["lastname"]
 
@@ -58,7 +58,7 @@ func helloFullName(w http.ResponseWriter, r *http.Request) {
 func helloAll(w http.ResponseWriter, r *http.Request) {
     // Get a map of all
     // route variables.
-    vrs := ninjarouter.Vars(r)
+    vrs, _ := ninjarouter.Vars(r)
     firstname := vrs["firstname"]
     lastname := vrs["lastname"]
 
