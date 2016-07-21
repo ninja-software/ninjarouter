@@ -37,8 +37,10 @@ func main() {
     // Custom 404 handler.
     rtr.NotFound = notFound
     // Listen and serve.
-    fmt.Println("Listening: :4545")
-    err := rtr.Listen(":4545")
+    fmt.Println("Listening: :9000")
+    if err := rtr.Listen(":9000"); err != nil {
+        panic(err)
+    }
 }
 
 func helloName(w http.ResponseWriter, r *http.Request) {
