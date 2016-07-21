@@ -246,8 +246,6 @@ func (m *Mux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Println(nd)
-
 	if nd == nil {
 		m.notFound(w, r)
 		return
