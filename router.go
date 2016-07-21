@@ -2,7 +2,6 @@ package ninjarouter
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -78,9 +77,8 @@ func New() *Mux {
 }
 
 // Listen is a shorthand way of doing http.ListenAndServe.
-func (m *Mux) Listen(port string) {
-	fmt.Printf("Listening: %s\n", port[1:])
-	http.ListenAndServe(port, m)
+func (m *Mux) Listen(port string) error {
+	return http.ListenAndServe(port, m)
 }
 
 func addnode(nd *node, n *node) {
