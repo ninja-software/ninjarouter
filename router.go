@@ -74,7 +74,7 @@ func Var(r *http.Request, n string) (string, error) {
 
 // New returns a new Mux instance.
 func New() *Mux {
-	return &Mux{make(map[string][]*Handler), make(map[string]*node), nil}
+	return &Mux{make(map[string]*node), nil}
 }
 
 // Listen is a shorthand way of doing http.ListenAndServe.
@@ -213,15 +213,15 @@ func (m *Mux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				if string([]rune(k)[0]) == ":" {
 					nd = v
 					vrs[strings.TrimPrefix(k, ":")] = seg
-					if i == len(segments)-1 {
-						break
-					}
+					break
 				}
 			}
-			if len(vrs) > 0 && i < len(segments)-1 {
-				continue
-			} else if len(vrs) > 0 && i == len(segments)-1 {
-				break
+			if len(vrs) > 0 {
+				if i < len(segments)-1 {
+					continue
+				} else {
+					break
+				}
 			}
 			//check for custom 404
 			m.notFound(w, r)
