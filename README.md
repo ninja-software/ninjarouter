@@ -1,6 +1,6 @@
 # NinjaRouter
 
-NinjaRouter is a simple, fast, threadsafe tree based HTTP router for Go
+NinjaRouter is a simple, fast, threadsafe tree based HTTP router for Go, which implements a graceful HTTP server for graceful closing of servers.
 
 #### Install
 
@@ -76,6 +76,41 @@ func catchAll(w http.ResponseWriter, r *http.Request) {
 
 func notFound(w http.ResponseWriter, r *http.Request) {
     w.Write([]byte("404 go away"))
+}
+```
+
+#### How to gracefully close the server
+
+```go
+func main() {
+    rtr := ninjarouter.New()
+
+    rtr.Timeout = 5 * time.Second // default is 10 seconds
+    rtr.Opened = func(m *ninjarouter.Mux) {
+        fmt.Printf("Opened server on port: %d\n", m.Port)
+    }
+    rtr.Closed = func(m *ninjarouter.Mux) {
+        fmt.Println("closed server")
+    }
+
+    go func() {
+        err := rtr.Listen("0.0.0.0:0")
+        if err != nil {
+            fmt.Println()
+            os.Exit(-1)
+        }
+    }()
+    c := make(chan os.Signal, 1)
+    signal.Notify(c, 
+        syscall.SIGHUP,
+        syscall.SIGINT,
+        syscall.SIGTERM,
+        syscall.SIGQUIT
+        os.Interrupt)
+    for sig := range c {
+        rtr.Close()
+        os.Exit(0)
+    }
 }
 ```
 
