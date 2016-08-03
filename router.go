@@ -2,15 +2,46 @@ package ninjarouter
 
 import (
 	"errors"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Mux contains a map of handler treenodes and the NotFound handler func.
+
 type Mux struct {
 	root     map[string]*node
+	Timeout  time.Duration
+	listener ninjaListener
 	NotFound http.HandlerFunc
+	Port     int
+	Opened   func(*Mux)
+	Closed   func(*Mux)
+
+	idle   map[net.Conn]struct{}
+	active map[net.Conn]struct{}
+
+	sync.RWMutex
+}
+
+type ninjaListener struct {
+	net.Listener
+	closing bool
+}
+
+func (nl ninjaListener) Accept() (net.Conn, error) {
+	if nl.closing {
+		return nil, errors.New("Listener is closing")
+	}
+	return nl.Listener.Accept()
+}
+func (nl ninjaListener) Close() error {
+	return nl.Listener.Close()
+}
+func (nl ninjaListener) Addr() net.Addr {
+	return nl.Listener.Addr()
 }
 
 // Handler contains the pattern and handler func.
@@ -73,12 +104,104 @@ func Var(r *http.Request, n string) (string, error) {
 
 // New returns a new Mux instance.
 func New() *Mux {
-	return &Mux{make(map[string]*node), nil}
+	return &Mux{
+		root:    make(map[string]*node),
+		Timeout: 10 * time.Second,
+		active:  make(map[net.Conn]struct{}),
+		idle:    make(map[net.Conn]struct{}),
+		Opened:  func(m *Mux) {},
+		Closed:  func(m *Mux) {},
+	}
 }
 
-// Listen is a shorthand way of doing http.ListenAndServe.
-func (m *Mux) Listen(port string) error {
-	return http.ListenAndServe(port, m)
+//Closes the server gracefully
+func (m *Mux) Close() error {
+	var err error
+
+	m.listener.closing = true
+
+	for conn, _ := range m.idle {
+		conn.Close()
+	}
+
+	if m.Timeout > 0 && len(m.active) > 0 {
+		timer := time.NewTimer(m.Timeout)
+		<-timer.C
+		err = m.listener.Close()
+	} else {
+		err = m.listener.Close()
+	}
+
+	m.Closed(m)
+
+	return err
+}
+
+// Accept connections and spawn a goroutine to serve each one.  Stop listening
+// if anything is received on the service's channel.
+
+func (m *Mux) activeConnection(conn net.Conn) {
+	m.Lock()
+	m.active[conn] = struct{}{}
+	delete(m.idle, conn)
+	m.Unlock()
+}
+
+func (m *Mux) removeConnection(conn net.Conn) {
+	m.Lock()
+	delete(m.active, conn)
+	delete(m.idle, conn)
+	m.Unlock()
+}
+
+func (m *Mux) idleConnection(conn net.Conn) {
+	m.Lock()
+	delete(m.active, conn)
+	m.idle[conn] = struct{}{}
+	m.Unlock()
+}
+
+// Listen starts a graceful HTTP server
+func (m *Mux) Listen(a string, statefns ...func(net.Conn, http.ConnState)) error {
+	l, err := net.Listen("tcp", a)
+	if err != nil {
+		return err
+	}
+
+	listener := ninjaListener{
+		Listener: l,
+	}
+
+	m.listener = listener
+	m.Port = listener.Addr().(*net.TCPAddr).Port
+
+	//state := make(chan http.ConnState)
+
+	srv := &http.Server{
+		Handler: m,
+		Addr:    a,
+		ConnState: func(conn net.Conn, state http.ConnState) {
+			switch state {
+			case http.StateNew:
+				m.activeConnection(conn)
+			case http.StateActive:
+				m.activeConnection(conn)
+			case http.StateIdle:
+				m.idleConnection(conn)
+			case http.StateClosed, http.StateHijacked:
+				m.removeConnection(conn)
+			}
+			for _, connstate := range statefns {
+				connstate(conn, state)
+			}
+		},
+	}
+
+	m.Opened(m)
+
+	err = srv.Serve(listener)
+
+	return err
 }
 
 func addnode(nd *node, n *node) {
