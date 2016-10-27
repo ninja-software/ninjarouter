@@ -2,6 +2,8 @@
 
 NinjaRouter is a simple, fast, threadsafe tree based HTTP router for Go, which implements a graceful HTTP server for graceful closing of servers.
 
+Not compatible with anything <1.7, as this router uses Context to store the REST paramters.
+
 #### Install
 
     go get github.com/blockninja/ninjarouter
@@ -45,7 +47,9 @@ func main() {
 
 func helloName(w http.ResponseWriter, r *http.Request) {
     // Get named variable
-    firstname, _ := ninjarouter.Var(r, "firstname")
+    params := r.Context().Value('params').(map[string]string)
+
+    firstname, _ := params["firstname"]
 
     io.WriteString(w, fmt.Sprintf("hello, %s", firstname))
 }

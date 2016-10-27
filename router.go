@@ -11,6 +11,11 @@ import (
 
 // Mux contains a map of handler treenodes and the NotFound handler func.
 
+type connections struct {
+	conns map[net.Conn]struct{}
+	sync.RWMutex
+}
+
 type Mux struct {
 	root     map[string]*node
 	Timeout  time.Duration
@@ -20,8 +25,8 @@ type Mux struct {
 	Opened   func(*Mux)
 	Closed   func(*Mux)
 
-	idle   map[net.Conn]struct{}
-	active map[net.Conn]struct{}
+	idle   connections
+	active connections
 
 	sync.RWMutex
 }
@@ -46,10 +51,16 @@ func (nl ninjaListener) Addr() net.Addr {
 
 // Handler contains the pattern and handler func.
 type Handler struct {
-	patt  string
-	parts []string
-	wild  bool
-	http.HandlerFunc
+	patt     string
+	parts    []string
+	wild     bool
+	handlers []http.HandlerFunc
+}
+
+type node struct {
+	pattern  string
+	handler  *Handler
+	children map[string]*node
 }
 
 var vars = struct {
@@ -59,18 +70,6 @@ var vars = struct {
 	sessions: map[*http.Request]map[string]string{},
 }
 
-type node struct {
-	pattern  string
-	handler  *Handler
-	children map[string]*node
-}
-
-// ErrNoSession is returned by Vars when there is no match for that request
-var ErrNoSession = errors.New("Session does not exist")
-
-// ErrNoVar is returned by Var when there is no match for that variable
-var ErrNoVar = errors.New("Variable does not exist")
-
 func deleteVars(r *http.Request) {
 	vars.Lock()
 	defer vars.Unlock()
@@ -79,27 +78,26 @@ func deleteVars(r *http.Request) {
 }
 
 // Vars returns a map of variables associated with supplied request.
-func Vars(r *http.Request) (map[string]string, error) {
+func Vars(r *http.Request) map[string]string {
 	vars.Lock()
 	defer vars.Unlock()
 	if v, ok := vars.sessions[r]; ok {
-		return v, nil
+		return v
 	}
-	return map[string]string{}, ErrNoSession
+	return map[string]string{}
 }
 
 // Var returns named variable associated with supplied request
-func Var(r *http.Request, n string) (string, error) {
+func Var(r *http.Request, n string) string {
 	vars.Lock()
 	defer vars.Unlock()
 
 	if session, ok := vars.sessions[r]; ok {
 		if v, ok := session[n]; ok {
-			return v, ErrNoVar
+			return v
 		}
-		return "", ErrNoVar
 	}
-	return "", ErrNoSession
+	return ""
 }
 
 // New returns a new Mux instance.
@@ -107,10 +105,14 @@ func New() *Mux {
 	return &Mux{
 		root:    make(map[string]*node),
 		Timeout: 10 * time.Second,
-		active:  make(map[net.Conn]struct{}),
-		idle:    make(map[net.Conn]struct{}),
 		Opened:  func(m *Mux) {},
 		Closed:  func(m *Mux) {},
+		active: connections{
+			conns: make(map[net.Conn]struct{}),
+		},
+		idle: connections{
+			conns: make(map[net.Conn]struct{}),
+		},
 	}
 }
 
@@ -120,17 +122,23 @@ func (m *Mux) Close() error {
 
 	m.listener.closing = true
 
-	for conn, _ := range m.idle {
+	m.idle.RLock()
+
+	for conn, _ := range m.idle.conns {
 		conn.Close()
 	}
 
-	if m.Timeout > 0 && len(m.active) > 0 {
+	m.idle.RUnlock()
+	m.active.RLock()
+
+	if m.Timeout > 0 && len(m.active.conns) > 0 {
 		timer := time.NewTimer(m.Timeout)
 		<-timer.C
 		err = m.listener.Close()
 	} else {
 		err = m.listener.Close()
 	}
+	m.active.RUnlock()
 
 	m.Closed(m)
 
@@ -141,24 +149,26 @@ func (m *Mux) Close() error {
 // if anything is received on the service's channel.
 
 func (m *Mux) activeConnection(conn net.Conn) {
-	m.Lock()
-	m.active[conn] = struct{}{}
-	delete(m.idle, conn)
-	m.Unlock()
+	m.active.Lock()
+	m.active.conns[conn] = struct{}{}
+	delete(m.idle.conns, conn)
+	m.active.Unlock()
 }
 
 func (m *Mux) removeConnection(conn net.Conn) {
-	m.Lock()
-	delete(m.active, conn)
-	delete(m.idle, conn)
-	m.Unlock()
+	m.active.Lock()
+	delete(m.active.conns, conn)
+	m.active.Unlock()
+	m.idle.Lock()
+	delete(m.idle.conns, conn)
+	m.idle.Unlock()
 }
 
 func (m *Mux) idleConnection(conn net.Conn) {
-	m.Lock()
-	delete(m.active, conn)
-	m.idle[conn] = struct{}{}
-	m.Unlock()
+	m.idle.Lock()
+	m.idle.conns[conn] = struct{}{}
+	delete(m.idle.conns, conn)
+	m.idle.Unlock()
 }
 
 // Listen starts a graceful HTTP server
@@ -224,15 +234,17 @@ func addnode(nd *node, n *node) {
 	}
 }
 
-func (m *Mux) add(meth, patt string, handler http.HandlerFunc) {
+func (m *Mux) Add(meth, patt string, handlers ...http.HandlerFunc) {
+	m.add(meth, patt, handlers)
+}
 
+func (m *Mux) add(meth, patt string, handlers []http.HandlerFunc) {
 	h := &Handler{
 		patt,
 		split(trim(patt, "/"), "/"),
 		patt[len(patt)-1:] == "*",
-		handler,
+		handlers,
 	}
-
 	if _, ok := m.root[meth]; !ok {
 		m.root[meth] = &node{"", nil, make(map[string]*node)}
 	}
@@ -247,40 +259,42 @@ func (m *Mux) add(meth, patt string, handler http.HandlerFunc) {
 }
 
 // GET adds a new route for GET requests.
-func (m *Mux) GET(patt string, handler http.HandlerFunc) {
-	m.add("GET", patt, handler)
-	m.add("HEAD", patt, handler)
+func (m *Mux) GET(patt string, handlers ...http.HandlerFunc) {
+	m.add("GET", patt, handlers)
+	m.add("HEAD", patt, handlers)
 }
 
 // HEAD adds a new route for HEAD requests.
-func (m *Mux) HEAD(patt string, handler http.HandlerFunc) {
-	m.add("HEAD", patt, handler)
+func (m *Mux) HEAD(patt string, handlers ...http.HandlerFunc) {
+	m.add("HEAD", patt, handlers)
 }
 
 // POST adds a new route for POST requests.
-func (m *Mux) POST(patt string, handler http.HandlerFunc) {
-	m.add("POST", patt, handler)
+func (m *Mux) POST(patt string, handlers ...http.HandlerFunc) {
+	m.add("POST", patt, handlers)
 }
 
 // PUT adds a new route for PUT requests.
-func (m *Mux) PUT(patt string, handler http.HandlerFunc) {
-	m.add("PUT", patt, handler)
+func (m *Mux) PUT(patt string, handlers ...http.HandlerFunc) {
+	m.add("PUT", patt, handlers)
 }
 
 // DELETE adds a new route for DELETE requests.
-func (m *Mux) DELETE(patt string, handler http.HandlerFunc) {
-	m.add("DELETE", patt, handler)
+func (m *Mux) DELETE(patt string, handlers ...http.HandlerFunc) {
+	m.add("DELETE", patt, handlers)
 }
 
 // OPTIONS adds a new route for OPTIONS requests.
-func (m *Mux) OPTIONS(patt string, handler http.HandlerFunc) {
-	m.add("OPTIONS", patt, handler)
+func (m *Mux) OPTIONS(patt string, handlers ...http.HandlerFunc) {
+	m.add("OPTIONS", patt, handlers)
 }
 
 // PATCH adds a new route for PATCH requests.
-func (m *Mux) PATCH(patt string, handler http.HandlerFunc) {
-	m.add("PATCH", patt, handler)
+func (m *Mux) PATCH(patt string, handlers ...http.HandlerFunc) {
+	m.add("PATCH", patt, handlers)
 }
+
+func hh(w http.ResponseWriter, r *http.Request) {}
 
 func (m *Mux) notFound(w http.ResponseWriter, r *http.Request) {
 	if m.NotFound != nil {
@@ -293,6 +307,12 @@ func (m *Mux) notFound(w http.ResponseWriter, r *http.Request) {
 	return
 }
 
+func (m *Mux) HandlerFunc(h http.Handler) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h.ServeHTTP(w, r)
+	})
+}
+
 func HandlerFunc(h http.Handler) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h.ServeHTTP(w, r)
@@ -300,6 +320,7 @@ func HandlerFunc(h http.Handler) http.HandlerFunc {
 }
 
 func (m *Mux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+
 	l := len(r.URL.Path)
 	// Redirect trailing slash URL's.
 	if l > 1 && r.URL.Path[l-1:] == "/" {
@@ -321,27 +342,28 @@ func (m *Mux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for i, seg := range segments {
-		xnode, ok = nd.children[seg]
-
-		if !ok {
+		if xnode, ok = nd.children[seg]; !ok {
 			if xnode, ok = nd.children["*"]; ok {
 				nd = xnode
 				break
 			}
 
 			//check for variables
+
 			for k, v := range nd.children {
-				if string([]rune(k)[0]) == ":" {
-					nd = v
-					vrs[strings.TrimPrefix(k, ":")] = seg
-					break
+				if len(k) > 0 {
+					if string([]rune(k)[0]) == ":" {
+						nd = v
+						vrs[strings.TrimPrefix(k, ":")] = seg
+						break
+					}
 				}
 			}
 			if len(vrs) > 0 {
-				if i < len(segments)-1 {
-					continue
-				} else {
+				if i > len(segments) {
 					break
+				} else {
+					continue
 				}
 			}
 			//check for custom 404
@@ -358,18 +380,17 @@ func (m *Mux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		nd = xnode
 	}
 
+	if nd == nil {
+		m.notFound(w, r)
+		return
+	}
 	if len(vrs) > 0 {
 		vars.Lock()
 		vars.sessions[r] = vrs
 		defer deleteVars(r)
 		vars.Unlock()
-		nd.handler.ServeHTTP(w, r)
-		return
 	}
-
-	if nd == nil {
-		m.notFound(w, r)
-		return
+	for _, handler := range nd.handler.handlers {
+		handler.ServeHTTP(w, r)
 	}
-	nd.handler.ServeHTTP(w, r)
 }
