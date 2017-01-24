@@ -148,20 +148,28 @@ func (m *Mux) Close() error {
 // Accept connections and spawn a goroutine to serve each one.  Stop listening
 // if anything is received on the service's channel.
 
-func (m *Mux) activeConnection(conn net.Conn) {
-	m.active.Lock()
-	m.active.conns[conn] = struct{}{}
-	delete(m.idle.conns, conn)
-	m.active.Unlock()
-}
-
-func (m *Mux) removeConnection(conn net.Conn) {
-	m.active.Lock()
-	delete(m.active.conns, conn)
-	m.active.Unlock()
+func (m *Mux) removeIdleConnection(conn net.Conn) {
 	m.idle.Lock()
 	delete(m.idle.conns, conn)
 	m.idle.Unlock()
+}
+
+func (m *Mux) removeActiveConnection(conn net.Conn) {
+	m.active.Lock()
+	delete(m.active.conns, conn)
+	m.active.Unlock()
+}
+
+func (m *Mux) activeConnection(conn net.Conn) {
+	m.active.Lock()
+	m.active.conns[conn] = struct{}{}
+	m.active.Unlock()
+	m.removeIdleConnection(conn)
+}
+
+func (m *Mux) removeConnection(conn net.Conn) {
+	m.removeActiveConnection(conn)
+	m.removeIdleConnection(conn)
 }
 
 func (m *Mux) idleConnection(conn net.Conn) {
