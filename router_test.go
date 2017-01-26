@@ -34,7 +34,7 @@ func helloHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func helloVarsHandler(w http.ResponseWriter, r *http.Request) {
-	params, _ := Vars(r)
+	params := Vars(r)
 	fmt.Fprintf(w, "hello %s %s %s %s", params["action"], params["lots"], params["of"], params["vars"])
 }
 
