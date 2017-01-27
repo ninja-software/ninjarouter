@@ -1,7 +1,9 @@
 package ninjarouter
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -9,13 +11,12 @@ import (
 	"time"
 )
 
-// Mux contains a map of handler treenodes and the NotFound handler func.
-
 type connections struct {
 	conns map[net.Conn]struct{}
 	sync.RWMutex
 }
 
+// Mux contains a map of handler treenodes and the NotFound handler func.
 type Mux struct {
 	root     map[string]*node
 	Timeout  time.Duration
@@ -24,6 +25,8 @@ type Mux struct {
 	Port     int
 	Opened   func(*Mux)
 	Closed   func(*Mux)
+	Timed    bool
+	Log      func(...interface{})
 
 	idle   connections
 	active connections
@@ -107,6 +110,8 @@ func New() *Mux {
 		Timeout: 10 * time.Second,
 		Opened:  func(m *Mux) {},
 		Closed:  func(m *Mux) {},
+		Timed:   false,
+		Log:     func(li ...interface{}) {},
 		active: connections{
 			conns: make(map[net.Conn]struct{}),
 		},
@@ -116,7 +121,7 @@ func New() *Mux {
 	}
 }
 
-//Closes the server gracefully
+// Close closes the server gracefully
 func (m *Mux) Close() error {
 	var err error
 
@@ -124,7 +129,7 @@ func (m *Mux) Close() error {
 
 	m.idle.RLock()
 
-	for conn, _ := range m.idle.conns {
+	for conn := range m.idle.conns {
 		conn.Close()
 	}
 
@@ -242,6 +247,7 @@ func addnode(nd *node, n *node) {
 	}
 }
 
+// Add adds many handler funcs to a route
 func (m *Mux) Add(meth, patt string, handlers ...http.HandlerFunc) {
 	m.add(meth, patt, handlers)
 }
@@ -315,12 +321,14 @@ func (m *Mux) notFound(w http.ResponseWriter, r *http.Request) {
 	return
 }
 
+// HandlerFunc takes a stdlib Handler and returns itself
 func (m *Mux) HandlerFunc(h http.Handler) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h.ServeHTTP(w, r)
 	})
 }
 
+// HandlerFunc takes a stdlib Handler and returns itself
 func HandlerFunc(h http.Handler) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h.ServeHTTP(w, r)
@@ -392,13 +400,24 @@ func (m *Mux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		m.notFound(w, r)
 		return
 	}
-	if len(vrs) > 0 {
-		vars.Lock()
-		vars.sessions[r] = vrs
-		defer deleteVars(r)
-		vars.Unlock()
-	}
+
+	ctx := context.Background()
+
 	for _, handler := range nd.handler.handlers {
-		handler.ServeHTTP(w, r)
+		r = r.WithContext(ctx)
+		if len(vrs) > 0 {
+			vars.Lock()
+			vars.sessions[r] = vrs
+			vars.Unlock()
+			defer deleteVars(r)
+		}
+		if m.Timed {
+			t1 := time.Now()
+			handler.ServeHTTP(w, r)
+			t2 := time.Now()
+			m.Log(fmt.Sprintf("[%s] %q %v\n", r.Method, r.URL.String(), t2.Sub(t1)))
+		} else {
+			handler.ServeHTTP(w, r)
+		}
 	}
 }
