@@ -2,15 +2,15 @@
 
 NinjaRouter is a simple, fast, threadsafe tree based HTTP router for Go, which implements a graceful HTTP server for graceful closing of servers.
 
-Not compatible with anything <1.7, as this router uses Context to store the REST paramters.
+Not compatible with anything <1.7, as this router uses Context to store the REST parameters.
 
 #### Install
 
-    go get github.com/blockninja/ninjarouter
+    go get github.com/ninja-software/ninjarouter
 
     //or
 
-    glide get github.com/blockninja/ninjarouter
+    glide get github.com/ninja-software/ninjarouter
 
 #### Usage
 
@@ -19,7 +19,7 @@ package main
 
 import (
     "fmt"
-    "github.com/blockninja/ninjarouter"
+    "github.com/ninja-software/ninjarouter"
     "net/http"
     "io"
 )
@@ -105,7 +105,7 @@ func main() {
         }
     }()
     c := make(chan os.Signal, 1)
-    signal.Notify(c, 
+    signal.Notify(c,
         syscall.SIGHUP,
         syscall.SIGINT,
         syscall.SIGTERM,
